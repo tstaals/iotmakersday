@@ -9,11 +9,11 @@
 #include <EEPROM.h>
 
 #define S_DEBUG
-#define DHTPIN            D5        // Pin which is connected to the DHT sensor.
-#define PIRPIN            D2        // Pin for Passive Infrared Sensor
-#define RESPIN            D3        // Reset PIN for software reset
-#define LDRPIN            A0        // Pin for the LDR
-#define DHTTYPE          DHT11     // DHT 22 (AM2302)
+#define DHTPIN           D6        // Pin which is connected to the DHT sensor.
+#define PIRPIN           D2        // Pin for Passive Infrared Sensor
+#define RESPIN           D3        // Reset PIN for software reset
+#define LDRPIN           A0        // Pin for the LDR
+#define DHTTYPE          DHT11     // DHT 11
 
 SYSCFG settings
 {
@@ -57,9 +57,9 @@ void MQTT_connect() {
   uint8_t retries = 3;
   while (!mqtt.connect(settings.mqtt_sensor_name, settings.mqtt_user, settings.mqtt_key)) { // connect will return 0 for connected
        Serial.println(mqtt.state());
-       Serial.println("Retrying MQTT connection in 5 seconds...");
+       Serial.println("Retrying MQTT connection in 15 seconds...");
        mqtt.disconnect();
-       delay(5000);  // wait 5 seconds
+       delay(15000);  // wait 5 seconds
        retries--;
        if (retries == 0) {
          // basically die and wait for WDT to reset me
@@ -131,7 +131,7 @@ void setup()
   WiFiManagerParameter custom_mqtt_user("user", "MQTT User", settings.mqtt_user, 33);
   WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", settings.mqtt_port, 33);
   WiFiManagerParameter custom_mqtt_key("key", "MQTT Key", settings.mqtt_key, 33);
-  WiFiManagerParameter custom_mqtt_sensor_name("sensorname","MQTT Sensor Name", settings.mqtt_sensor_name,15);
+  WiFiManagerParameter custom_mqtt_sensor_name("sensorname","MQTT Sensor Name", settings.mqtt_sensor_name,33);
   WiFiManagerParameter custom_mqtt_topic_temp("topictemp", "MQTT Topic Temperature", settings.mqtt_topic_temp, 40);
   WiFiManagerParameter custom_mqtt_topic_hum("topichum", "MQTT Topic Humidity", settings.mqtt_topic_hum, 40);
   WiFiManagerParameter custom_mqtt_topic_pir("topicpir", "MQTT Topic Movement", settings.mqtt_topic_pir, 40);
@@ -231,7 +231,9 @@ void loop()
     ldrValue = analogRead(A0); // read analog input pin 0
 
     // Get temperature from dht
-    int temperature = dht.readTemperature(false,true);
+    float temperature = dht.readTemperature(false,true);
+
+    #ifdef S_DEBUG
     if (isnan(temperature)) {
       Serial.println("Error reading temperature!");
     }
@@ -240,10 +242,12 @@ void loop()
       Serial.print(temperature);
       Serial.println(" *C");
     }
+    #endif
 
     // Get humidity event and print its value.
-    int humidity = dht.readHumidity(true);
+    float humidity = dht.readHumidity(true);
 
+    #ifdef S_DEBUG
     if (isnan(humidity)) {
       Serial.println("Error reading humidity!");
     }
@@ -252,16 +256,24 @@ void loop()
       Serial.print(humidity);
       Serial.println("%");
     }
+    #endif
+
     if (!mqtt.publish(settings.mqtt_topic_ldr, String(ldrValue).c_str(), true)) {
       Serial.println("failed to publish ldr");
     }
-    if (!mqtt.publish(settings.mqtt_topic_temp, String(temperature).c_str(), true)) {
-      Serial.println("failed to publish temperature");
+    delay(1000);
+    if (!isnan(temperature)) {
+      if (!mqtt.publish(settings.mqtt_topic_temp, String(temperature).c_str(), true)) {
+        Serial.println("failed to publish temperature");
+      }
     }
-    if (!mqtt.publish(settings.mqtt_topic_hum, String(humidity).c_str(),true)) {
-      Serial.println("failed to publish humidity");
-    }
+    delay(1000);
 
+    if (!isnan(humidity)) {
+      if (!mqtt.publish(settings.mqtt_topic_hum, String(humidity).c_str(),true)) {
+        Serial.println("failed to publish humidity");
+      }
+    }
     startDelay = millis();
   }
 
