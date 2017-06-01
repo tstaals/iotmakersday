@@ -10,23 +10,34 @@
 #define S_DEBUG
 #define LEDPIN           13        // led PIN for notifications
 #define RELAYPIN         12        // Pin for the RELAY
+#define BUTTONPIN        0         // Pin of button
 
 SYSCFG settings
 {
     "io.adafruit.com",
     "1883",
-    "f1ybcer",
+    "f1cyber",
     "key",
     "sensor",
-    "f1cyber/feeds/relays1"
+    "f1cyber/feeds/relays1",
+    "Aan",
+    "Uit"
 };
 
 //flag for saving data
 bool shouldSaveConfig = false;
+unsigned long buttonDownTime = 0;
+byte lastButtonState = 1;
+byte buttonPressHandled = 0;
 
 WiFiClient client;
 
 PubSubClient mqtt(client);
+
+void publishRelay() {
+  bool on = digitalRead(RELAYPIN) == HIGH;
+  mqtt.publish(settings.mqtt_topic_relay,  String((on ? settings.mqtt_topic_relay_on : settings.mqtt_topic_relay_off)).c_str());
+}
 
 void reconnect() {
   // Loop until we're reconnected
@@ -49,24 +60,22 @@ void reconnect() {
 }
 // function for receiving subcribed messages
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
+  for (int i = 0; i < 4; i++)
+  {
+    digitalWrite(LEDPIN, HIGH);
+    delay(100);
+    digitalWrite(LEDPIN, LOW);
+    delay(100);
   }
-  Serial.println();
 
-  // Switch on the LED if an 1 was received as first character
-  if ((char)payload[0] == '1') {
-    digitalWrite(RELAYPIN, LOW);   // Turn the LED on (Note that LOW is the voltage level
-    digitalWrite(LEDPIN, LOW);   // Turn the LED on (Note that LOW is the voltage level
-
-    // but actually the LED is on; this is because
-    // it is acive low on the ESP-01)
+  char dataPayload[length+1];
+  memcpy(dataPayload, payload, sizeof(dataPayload));
+  dataPayload[sizeof(dataPayload)-1] = 0;
+  if (strcmp(dataPayload, settings.mqtt_topic_relay_on) == 0) {
+    digitalWrite(RELAYPIN, LOW);
+    digitalWrite(LEDPIN, LOW);
   } else {
-    digitalWrite(RELAYPIN, HIGH);  // Turn the LED off by making the voltage HIGH
+    digitalWrite(RELAYPIN, HIGH);
     digitalWrite(LEDPIN, HIGH);
   }
 
@@ -131,6 +140,9 @@ void setup()
   WiFiManagerParameter custom_mqtt_key("key", "MQTT Key", settings.mqtt_key, 33);
   WiFiManagerParameter custom_mqtt_sensor_name("sensorname","MQTT Sensor Name", settings.mqtt_sensor_name,33);
   WiFiManagerParameter custom_mqtt_topic_relay("topicname","MQTT Relay topic", settings.mqtt_topic_relay,33);
+  WiFiManagerParameter custom_mqtt_topic_relay_on("topicon","MQTT Relay Aan", settings.mqtt_topic_relay_on,4);
+  WiFiManagerParameter custom_mqtt_topic_relay_off("topicoff","MQTT Relay Uit", settings.mqtt_topic_relay_off,4);
+
 
   wifiManager.addParameter(&custom_mqtt_server);
   wifiManager.addParameter(&custom_mqtt_port);
@@ -138,6 +150,8 @@ void setup()
   wifiManager.addParameter(&custom_mqtt_key);
   wifiManager.addParameter(&custom_mqtt_sensor_name);
   wifiManager.addParameter(&custom_mqtt_topic_relay);
+  wifiManager.addParameter(&custom_mqtt_topic_relay_on);
+  wifiManager.addParameter(&custom_mqtt_topic_relay_off);
 
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
@@ -162,15 +176,15 @@ void setup()
     strcpy(settings.mqtt_key,custom_mqtt_key.getValue());
     strcpy(settings.mqtt_sensor_name, custom_mqtt_sensor_name.getValue());
     strcpy(settings.mqtt_topic_relay, custom_mqtt_topic_relay.getValue());
+    strcpy(settings.mqtt_topic_relay_on, custom_mqtt_topic_relay_on.getValue());
+    strcpy(settings.mqtt_topic_relay_off, custom_mqtt_topic_relay_off.getValue());
 
     storeStruct(&settings, sizeof(settings));
   }
 
   // Set a resetpint and use internal pullup
-  //pinMode(BUILTIN_LED, OUTPUT);     // Initialize the BUILTIN_LED pin as an output
-
-  pinMode(RELAYPIN,OUTPUT);
-  pinMode(LEDPIN,OUTPUT);
+  pinMode(RELAYPIN, OUTPUT);
+  pinMode(LEDPIN, OUTPUT);
 
   Serial.println("settings");
   Serial.println(settings.mqtt_host);
@@ -179,6 +193,8 @@ void setup()
   Serial.println(settings.mqtt_key);
   Serial.println(settings.mqtt_sensor_name);
   Serial.println(settings.mqtt_topic_relay);
+  Serial.println(settings.mqtt_topic_relay_on);
+  Serial.println(settings.mqtt_topic_relay_off);
 
   mqtt.setServer(settings.mqtt_host, atoi(settings.mqtt_port));
   mqtt.setCallback(mqttCallback);
@@ -189,6 +205,27 @@ void loop()
   if (!mqtt.connected()) {
     reconnect();
   }
-  delay(1000);
+
+  byte buttonState = digitalRead(BUTTONPIN);
+
+  if ( buttonState != lastButtonState ) {
+    if (buttonState == LOW) {
+      buttonDownTime     = millis();
+      buttonPressHandled = 0;
+    } else {
+      unsigned long dt = millis() - buttonDownTime;
+      if ( dt >= 90 && dt <= 900 && buttonPressHandled == 0 ) {
+        publishRelay();
+        buttonPressHandled = 1;
+      }
+      if ( dt >= 90 && dt <= 900 && buttonPressHandled == 1 ) {
+        Serial.println("reset memory?");
+        buttonPressHandled = 2;
+      }
+    }
+
+    lastButtonState = buttonState;
+  }
+
   mqtt.loop();
 }
