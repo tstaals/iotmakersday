@@ -218,9 +218,9 @@ void loop()
         publishRelay();
         buttonPressHandled = 1;
       }
-      if ( dt >= 90 && dt <= 900 && buttonPressHandled == 1 ) {
-        Serial.println("reset memory?");
-        buttonPressHandled = 2;
+      if ( dt >= 901 && dt <= 2000 && buttonPressHandled == 0 ) {
+        resetNode();
+        buttonPressHandled = 1;
       }
     }
 
